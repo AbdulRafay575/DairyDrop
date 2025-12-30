@@ -1,0 +1,7 @@
+# Install main dependencies
+npm install express mongoose bcryptjs jsonwebtoken multer cors dotenv helmet express-rate-limit
+
+# Install development dependencies
+npm install -D nodemon
+
+npm install stripes
