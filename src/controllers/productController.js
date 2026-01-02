@@ -182,6 +182,7 @@ const createProduct = async (req, res) => {
   }
 };
 
+
 // @desc    Update product
 // @route   PUT /api/products/:id
 // @access  Private/Admin
@@ -208,18 +209,34 @@ const updateProduct = async (req, res) => {
       updateData.tags = req.body.tags.split(',').map(tag => tag.trim());
     }
 
+    // Parse images to delete if provided
+    if (req.body.imagesToDelete) {
+      try {
+        const imagesToDelete = JSON.parse(req.body.imagesToDelete);
+        // Filter out the images to delete
+        product.images = product.images.filter(image => 
+          !imagesToDelete.includes(image._id.toString())
+        );
+      } catch (error) {
+        console.error('Error parsing imagesToDelete:', error);
+      }
+    }
+
     // Handle numeric fields
     if (req.body.price) updateData.price = parseFloat(req.body.price);
     if (req.body.shelfLife) updateData.shelfLife = parseInt(req.body.shelfLife);
     if (req.body.quantity) updateData.quantity = parseInt(req.body.quantity);
 
-    // Handle image uploads
+    // Handle new image uploads
     if (req.files && req.files.length > 0) {
       const newImages = req.files.map(file => ({
         url: `/uploads/products/${file.filename}`,
         alt: updateData.name || product.name
       }));
       updateData.images = [...product.images, ...newImages];
+    } else {
+      // Keep existing images (after deletions)
+      updateData.images = product.images;
     }
 
     product = await Product.findByIdAndUpdate(

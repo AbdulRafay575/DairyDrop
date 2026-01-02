@@ -45,7 +45,7 @@ const reviewSchema = new mongoose.Schema({
 });
 
 // Ensure one review per product per user per order
-reviewSchema.index({ user: 1, product: 1, order: 1 }, { unique: true });
+reviewSchema.index({ user: 1, product: 1, order: 0 }, { unique: true });
 
 // Update product rating when review is created, updated, or deleted
 reviewSchema.post('save', async function() {
