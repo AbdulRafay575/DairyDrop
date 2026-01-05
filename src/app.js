@@ -11,55 +11,56 @@ const userRoutes = require('./routes/users');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const reviewRoutes = require('./routes/reviews');
+const stripeRoutes = require('./routes/stripe'); // Add this
 
 const app = express();
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.'
   }
 });
 
-// Security middleware
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:", "http://localhost:5000"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-      },
-    },
-  })
-);
-app.use(limiter);
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
-// Body parsing middleware
+app.options('*', cors());
+
+// Security middleware
+app.use(helmet());
+
+// IMPORTANT: Stripe webhook needs raw body, so mount it before body parsers
+app.use('/api/stripe', stripeRoutes);
+
+// Body parsing middleware for other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/reviews', reviewRoutes);
 
-// Health check route
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'Dairy Drop API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    stripe: process.env.STRIPE_PUBLISHABLE_KEY ? 'configured' : 'not configured'
   });
 });
 
@@ -75,7 +76,6 @@ app.all('*', (req, res) => {
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
 
-  // Mongoose validation error
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(val => val.message);
     return res.status(400).json({
@@ -85,7 +85,6 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Mongoose duplicate key error
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue)[0];
     return res.status(400).json({
@@ -94,7 +93,6 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // JWT errors
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json({
       success: false,
@@ -109,7 +107,6 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Default error
   res.status(err.statusCode || 500).json({
     success: false,
     message: err.message || 'Server Error'

@@ -5,7 +5,9 @@ const {
   getOrder,
   updateOrderStatus,
   getMyOrders,
-  cancelOrder
+  cancelOrder,
+  createPaymentIntent,
+  getPaymentStatus
 } = require('../controllers/orderController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -15,6 +17,8 @@ router.use(protect);
 
 router.post('/', createOrder);
 router.get('/user/my-orders', getMyOrders);
+router.post('/:id/pay', createPaymentIntent); // New payment route
+router.get('/:id/payment-status', getPaymentStatus); // New status route
 router.get('/:id', getOrder);
 router.put('/:id/cancel', cancelOrder);
 

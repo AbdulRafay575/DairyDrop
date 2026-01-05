@@ -50,14 +50,30 @@ const orderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['cod'],
+    enum: ['cod', 'card'],
     default: 'cod'
   },
   paymentStatus: {
     type: String,
-    enum: ['pending', 'paid', 'failed'],
+    enum: ['pending', 'paid', 'failed', 'processing'],
     default: 'pending'
   },
+  paymentIntentId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  stripeCustomerId: String,
+  paymentDetails: {
+    paymentMethod: String,
+    last4: String,
+    brand: String
+  },
+  isPaid: {
+    type: Boolean,
+    default: false
+  },
+  paidAt: Date,
   orderStatus: {
     type: String,
     enum: ['pending', 'confirmed', 'packed', 'out-for-delivery', 'delivered', 'cancelled'],
@@ -73,7 +89,7 @@ const orderSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ONLY pre-save hook (this is safe)
+// Generate order number
 orderSchema.pre('save', async function() {
   if (this.isNew) {
     const date = new Date();
@@ -82,9 +98,5 @@ orderSchema.pre('save', async function() {
     this.orderNumber = `DD${timestamp}${random}`;
   }
 });
-
-
-
-// ❌ NO MORE HOOKS BELOW THIS LINE ❌
 
 module.exports = mongoose.model('Order', orderSchema);

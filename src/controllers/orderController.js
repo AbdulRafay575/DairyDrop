@@ -1,12 +1,13 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // @desc    Create new order
 // @route   POST /api/orders
 // @access  Private
 const createOrder = async (req, res) => {
   try {
-    const { items, deliveryAddress, contactNumber, deliveryDate } = req.body;
+    const { items, deliveryAddress, contactNumber, deliveryDate, paymentMethod = 'cod' } = req.body;
 
     // Validation
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -62,12 +63,15 @@ const createOrder = async (req, res) => {
         image: product.images[0]?.url || ''
       });
 
-      // Update product quantity
-      product.quantity -= item.quantity;
-      if (product.quantity === 0) {
-        product.isAvailable = false;
+      // Update product quantity for COD orders immediately
+      // For card payments, we'll update after successful payment
+      if (paymentMethod === 'cod') {
+        product.quantity -= item.quantity;
+        if (product.quantity === 0) {
+          product.isAvailable = false;
+        }
+        await product.save();
       }
-      await product.save();
     }
 
     // Create order
@@ -77,7 +81,10 @@ const createOrder = async (req, res) => {
       deliveryAddress,
       contactNumber,
       totalAmount,
-      deliveryDate: new Date(deliveryDate)
+      paymentMethod,
+      deliveryDate: new Date(deliveryDate),
+      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
+      orderStatus: paymentMethod === 'cod' ? 'pending' : 'pending'
     });
 
     // Populate order for response
@@ -87,7 +94,10 @@ const createOrder = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Order created successfully',
-      data: { order }
+      data: { 
+        order,
+        nextStep: paymentMethod === 'card' ? 'payment' : 'confirmation'
+      }
     });
   } catch (error) {
     console.error('Create order error:', error);
@@ -265,6 +275,58 @@ const getMyOrders = async (req, res) => {
   }
 };
 
+
+
+
+// @desc    Create Stripe PaymentIntent for an order
+// @route   POST /api/orders/:id/pay
+// @access  Private
+const createPayment = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized to pay for this order' });
+    }
+
+    if (order.paymentStatus === 'paid' || order.isPaid) {
+      return res.status(400).json({ success: false, message: 'Order already paid' });
+    }
+
+    // Amount should be in the smallest currency unit (cents)
+    const amount = Math.round(order.totalAmount * 100);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency: process.env.STRIPE_CURRENCY || 'usd',
+      metadata: { orderId: order._id.toString(), userId: req.user._id.toString() }
+    });
+
+    // Save paymentIntent id on order for later reference
+    order.paymentIntentId = paymentIntent.id;
+    order.paymentMethod = 'card';
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id
+      }
+    });
+  } catch (error) {
+    console.error('Create payment error:', error);
+    res.status(500).json({ success: false, message: 'Server error while creating payment' });
+  }
+};
+
+
+
+
 // @desc    Cancel order
 // @route   PUT /api/orders/:id/cancel
 // @access  Private
@@ -325,11 +387,15 @@ const cancelOrder = async (req, res) => {
   }
 };
 
+
+// Add these new routes to your orderController.js exports:
 module.exports = {
   createOrder,
   getOrders,
   getOrder,
   updateOrderStatus,
   getMyOrders,
-  cancelOrder
+  cancelOrder,
+  createPaymentIntent: require('./stripeController').createPaymentIntent,
+  getPaymentStatus: require('./stripeController').getPaymentStatus
 };
