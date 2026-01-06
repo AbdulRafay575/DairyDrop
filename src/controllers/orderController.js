@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const Stripe = require('stripe');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -283,6 +284,9 @@ const getMyOrders = async (req, res) => {
 // @access  Private
 const createPayment = async (req, res) => {
   try {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({ success: false, message: 'Stripe secret key not configured on server' });
+    }
     const order = await Order.findById(req.params.id);
 
     if (!order) {
@@ -396,6 +400,5 @@ module.exports = {
   updateOrderStatus,
   getMyOrders,
   cancelOrder,
-  createPaymentIntent: require('./stripeController').createPaymentIntent,
-  getPaymentStatus: require('./stripeController').getPaymentStatus
+  createPayment
 };

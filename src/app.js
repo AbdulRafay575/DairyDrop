@@ -11,7 +11,7 @@ const userRoutes = require('./routes/users');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const reviewRoutes = require('./routes/reviews');
-const stripeRoutes = require('./routes/stripe'); // Add this
+const stripeRoutes = require('./routes/stripe');
 
 const app = express();
 
@@ -25,24 +25,47 @@ const limiter = rateLimit({
   }
 });
 
+// CORS configuration - FIXED
 app.use(cors({
-  origin: [
-    'http://localhost:3000', // dev
-    'https://dairy-drop-frontend.onrender.com' // production (NO trailing slash!)
-  ],
-  methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173', // Vite dev server
+      'https://dairy-drop-frontend.onrender.com',
+      'https://dairydrop.onrender.com' // Add your backend URL if frontend is on same domain
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
+// Apply rate limiting
+app.use(limiter);
 
-
-
-
-app.options('*', cors());
-
-// Security middleware
-app.use(helmet());
+// Security middleware with CORS fixes
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.stripe.com"],
+    },
+  },
+}));
 
 // IMPORTANT: Stripe webhook needs raw body, so mount it before body parsers
 app.use('/api/stripe', stripeRoutes);
@@ -67,7 +90,8 @@ app.get('/api/health', (req, res) => {
     success: true,
     message: 'Dairy Drop API is running',
     timestamp: new Date().toISOString(),
-    stripe: process.env.STRIPE_PUBLISHABLE_KEY ? 'configured' : 'not configured'
+    stripe: process.env.STRIPE_PUBLISHABLE_KEY ? 'configured' : 'not configured',
+    cors: 'enabled'
   });
 });
 
@@ -82,6 +106,14 @@ app.all('*', (req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
+
+  // CORS error
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      message: 'CORS policy: Origin not allowed'
+    });
+  }
 
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(val => val.message);
